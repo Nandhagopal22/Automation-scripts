@@ -1,0 +1,95 @@
+pipeline {
+    agent any
+
+    parameters {
+        string(name: 'TARGET_ENV', defaultValue: 'dev', description: 'Environment to deploy')
+    }
+
+    environment {
+        BUILD_DATE = "${new Date().format('yyyyMMdd')}"
+        BUILD_DIR  = "artifacts/${BUILD_DATE}_${env.BUILD_NUMBER}"
+    }
+
+    stages {
+
+        stage('Clean Workspace') {
+            steps {
+                echo "Cleaning workspace..."
+                deleteDir()
+            }
+        }
+
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Prepare Build Folder') {
+            steps {
+                echo "Creating build folder..."
+                powershell """
+                    New-Item -ItemType Directory -Path '${BUILD_DIR}' -Force
+                """
+            }
+        }
+
+        stage('Build') {
+            steps {
+                echo "Building application..."
+
+                powershell """
+                    Set-Content -Path '${BUILD_DIR}/build-info.txt' `
+                    -Value "Build Number: ${env.BUILD_NUMBER}`nDate: ${BUILD_DATE}`nEnvironment: ${params.TARGET_ENV}"
+                """
+            }
+        }
+
+        stage('Trigger Remote Jenkins Job') {
+            steps {
+                echo "Triggering remote Jenkins job using PowerShell..."
+
+                powershell """
+                    ./scripts/trigger-build.ps1 `
+                    -Environment ${params.TARGET_ENV}
+                """
+            }
+        }
+    }
+
+    post {
+        success {
+            echo "Pipeline completed successfully."
+
+            emailext (
+                subject: "SUCCESS: Build #${env.BUILD_NUMBER}",
+                body: """
+                <h3>Build Successful</h3>
+                <p><b>Project:</b> ${env.JOB_NAME}</p>
+                <p><b>Build Number:</b> ${env.BUILD_NUMBER}</p>
+                <p><b>Environment:</b> ${params.TARGET_ENV}</p>
+                <p><b>Date:</b> ${BUILD_DATE}</p>
+                <p>View Build: <a href="${env.BUILD_URL}">${env.BUILD_URL}</a></p>
+                """,
+                to: "your_email@gmail.com"
+            )
+        }
+
+        failure {
+            echo "Pipeline failed."
+
+            emailext (
+                subject: "FAILED: Build #${env.BUILD_NUMBER}",
+                body: """
+                <h3>Build Failed</h3>
+                <p><b>Project:</b> ${env.JOB_NAME}</p>
+                <p><b>Build Number:</b> ${env.BUILD_NUMBER}</p>
+                <p><b>Environment:</b> ${params.TARGET_ENV}</p>
+                <p><b>Date:</b> ${BUILD_DATE}</p>
+                <p>Check logs: <a href="${env.BUILD_URL}">${env.BUILD_URL}</a></p>
+                """,
+                to: "your_email@gmail.com"
+            )
+        }
+    }
+}
