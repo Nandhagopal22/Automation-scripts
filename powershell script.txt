@@ -1,0 +1,46 @@
+$jenkinsUrl = "http://your-jenkins-url"
+$jobName = "YourJobName"
+$user = "your-jenkins-username"
+$apiToken = "your-api-token"
+
+# Optional: Parameters for the Jenkins job
+$parameters = @{
+    "param1" = "value1"
+    "param2" = "value2"
+}
+
+$paramString = ($parameters.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" }) -join "&"
+
+
+$buildUrl = "$jenkinsUrl/job/$jobName/buildWithParameters?$paramString"
+$headers = @{ Authorization = ("Basic {0}" -f [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("$user:$apiToken"))) }
+
+$response = Invoke-RestMethod -Uri $buildUrl -Method Post -Headers $headers -SkipHttpErrorCheck
+
+Write-Host "Build triggered for job '$jobName'. Waiting for queue..."
+
+Start-Sleep -Seconds 5
+
+$queueUrl = "$jenkinsUrl/job/$jobName/api/json?tree=builds[number,url,result]"
+$buildStarted = $false
+
+do {
+    Start-Sleep -Seconds 5
+    $jobData = Invoke-RestMethod -Uri $queueUrl -Headers $headers
+    $latestBuild = $jobData.builds[0]
+
+    if ($latestBuild -ne $null) {
+        $buildStarted = $true
+    }
+} while (-not $buildStarted)
+
+Write-Host "Build URL: $($latestBuild.url)"
+
+$buildStatus = $null
+do {
+    Start-Sleep -Seconds 5
+    $buildInfo = Invoke-RestMethod -Uri "$($latestBuild.url)api/json" -Headers $headers
+    $buildStatus = $buildInfo.result
+} while ($buildStatus -eq $null)
+
+Write-Host "Build completed with status: $buildStatus"
